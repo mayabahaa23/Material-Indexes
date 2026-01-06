@@ -86,18 +86,6 @@
     const fullTimeline = [];
     [2022, 2023, 2024, 2025].forEach(y => months.forEach(m => fullTimeline.push(`${m} ${y}`)));
 
-    // Generate accurate historical curves leading to 2025 values
-    const historyData = {};
-    Object.keys(cbeOfficial).forEach(curr => {
-        let base = cbeOfficial[curr] * 0.4; // Start low in 2022
-        historyData[curr] = Array(48).fill(0).map((_, i) => {
-            if (i === 3) base *= 1.15; // Mar 22
-            if (i === 12) base *= 1.25; // Jan 23
-            if (i === 26) base *= 1.55; // Mar 24
-            return parseFloat((base + (i * (cbeOfficial[curr]*0.005))).toFixed(3));
-        });
-    });
-
     function populateDropdowns() {
         const s = document.getElementById('start'), e = document.getElementById('end'), c = document.getElementById('cur');
         fullTimeline.forEach((m, i) => {
@@ -176,6 +164,39 @@
             document.getElementById('pdf-data').innerHTML = h;
         } catch(e) {}
     }
+    // This replaces the fake math with a real data bridge
+const historyData = {};
+const fullTimeline = [];
+
+async function fetchXETrends() {
+    try {
+        // We fetch the lineage of EGP to see exactly when it jumped
+        const res = await fetch('https://open.er-api.com/v6/lineage/EGP');
+        const data = await res.json();
+        
+        // This gets the actual dates from the last 3 years
+        const dates = Object.keys(data.history).sort();
+        fullTimeline.push(...dates);
+
+        // This maps the REAL historical numbers for your specific currencies
+        const targets = ['EUR', 'AED', 'CHF', 'CNY', 'SAR', 'USD'];
+        targets.forEach(curr => {
+            historyData[curr] = dates.map(d => {
+                const rate = data.history[d][curr];
+                // We convert it to "1 Unit = X EGP" to match the XE chart style
+                return parseFloat((1 / rate).toFixed(3));
+            });
+        });
+
+        // Trigger the chart update once data is ready
+        if (typeof updateMap === "function") updateMap();
+    } catch (e) {
+        console.error("XE Trend Fetch Failed: ", e);
+    }
+}
+
+// Call this function when the page loads
+fetchXETrends();
 </script>
 </body>
 </html>
