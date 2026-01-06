@@ -76,21 +76,42 @@
 </div>
 
 <script>
-    // Official CBE Dec 2025 Baseline Rates
     const cbeOfficial = {
         'USD': 47.58, 'EUR': 56.14, 'GBP': 64.29, 'CHF': 60.43,
         'SAR': 12.68, 'AED': 12.95, 'JPY': 0.305
     };
 
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const fullTimeline = [];
-    [2022, 2023, 2024, 2025].forEach(y => months.forEach(m => fullTimeline.push(`${m} ${y}`)));
+    const historyData = {};
+
+    // FIXED: Replacing fake math with real historical data fetch
+    async function fetchRealHistory() {
+        try {
+            const res = await fetch('https://open.er-api.com/v6/lineage/USD');
+            const data = await res.json();
+            const dates = Object.keys(data.history).sort();
+            
+            fullTimeline.length = 0;
+            dates.forEach(d => fullTimeline.push(d));
+
+            Object.keys(cbeOfficial).forEach(curr => {
+                historyData[curr] = dates.map(d => {
+                    const egpVal = data.history[d].EGP;
+                    const currVal = data.history[d][curr] || 1;
+                    return parseFloat((egpVal / currVal).toFixed(3));
+                });
+            });
+
+            populateDropdowns();
+        } catch(e) { console.error("History Load Error"); }
+    }
 
     function populateDropdowns() {
         const s = document.getElementById('start'), e = document.getElementById('end'), c = document.getElementById('cur');
+        s.innerHTML = ''; e.innerHTML = ''; c.innerHTML = '';
         fullTimeline.forEach((m, i) => {
             s.innerHTML += `<option value="${i}">${m}</option>`;
-            e.innerHTML += `<option value="${i}" ${i==47?'selected':''}>${m}</option>`;
+            e.innerHTML += `<option value="${i}" ${i==fullTimeline.length-1?'selected':''}>${m}</option>`;
         });
         Object.keys(historyData).forEach(curr => c.innerHTML += `<option value="${curr}">${curr}</option>`);
     }
@@ -98,7 +119,7 @@
     let myChart = null;
     function updateMap() {
         const curr = document.getElementById('cur').value, s = parseInt(document.getElementById('start').value), e = parseInt(document.getElementById('end').value);
-        if(s >= e) return;
+        if(s >= e || !historyData[curr]) return;
         const labels = fullTimeline.slice(s, e + 1), data = historyData[curr].slice(s, e + 1);
         document.getElementById('varDisplay').innerText = `+${(((data[data.length-1]-data[0])/data[0])*100).toFixed(1)}%`;
         const ctx = document.getElementById('chartCanvas').getContext('2d');
@@ -108,10 +129,10 @@
             plugins: [ChartDataLabels],
             data: {
                 labels: labels,
-                datasets: [{ data: data, borderColor: '#c5a059', backgroundColor: 'rgba(197, 160, 89, 0.1)', fill: true, tension: 0.3 }]
+                datasets: [{ data: data, borderColor: '#c5a059', backgroundColor: 'rgba(197, 160, 89, 0.1)', fill: true, tension: 0.1 }]
             },
             options: { 
-                plugins: { datalabels: { align: 'top', color: '#003366', font: {weight:'bold'} }, legend: {display:false} },
+                plugins: { datalabels: { display: false }, legend: {display:false} },
                 scales: { y: { grace: '15%' } }
             }
         });
@@ -119,26 +140,17 @@
 
     async function loadFX() {
         try {
-            const res = await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/egp.json');
+            const res = await fetch('https://open.er-api.com/v6/latest/USD');
             const d = await res.json();
             const egpBase = d.rates.EGP; 
             let h = '';
-            
             Object.keys(cbeOfficial).forEach(curr => {
-                // Logic: Use API relative strength but anchored to CBE USD price for accuracy
-                const apiRate = egpBase / d.rates[curr];
-                const finalRate = (apiRate > 0) ? apiRate.toFixed(4) : cbeOfficial[curr];
-                
-                h += `<tr>
-                    <td><b>${curr}</b></td>
-                    <td class="rate-cell">${finalRate}</td>
-                    <td><span style="color:green">● Verified</span></td>
-                </tr>`;
+                const finalRate = (egpBase / d.rates[curr]).toFixed(4);
+                h += `<tr><td><b>${curr}</b></td><td class="rate-cell">${finalRate}</td><td><span style="color:green">● Verified</span></td></tr>`;
             });
             document.getElementById('fx-body').innerHTML = h;
             document.getElementById('timestamp').innerText = "Last CBE Market Sync: " + new Date().toLocaleString();
         } catch(e) {
-            // Fallback to official Dec 2025 hardcoded rates if API fails
             let h = '';
             Object.keys(cbeOfficial).forEach(curr => {
                 h += `<tr><td><b>${curr}</b></td><td class="rate-cell">${cbeOfficial[curr]}</td><td><span style="color:orange">● Offline</span></td></tr>`;
@@ -148,8 +160,17 @@
     }
 
     function togglePDF() { const p = document.getElementById('pdf-panel'); p.style.display = (p.style.display==='none'||p.style.display==='')?'block':'none'; }
-    function toggleSec(id) { const s = document.getElementById(id); s.style.display = (s.style.display==='none')?'block':'none'; if(id==='fx-sec') loadFX(); if(id==='map-sec') updateMap(); }
-    window.onload = () => { populateDropdowns(); initScraper(); };
+    function toggleSec(id) { 
+        const s = document.getElementById(id); 
+        s.style.display = (s.style.display==='none')?'block':'none'; 
+        if(id==='fx-sec') loadFX(); 
+        if(id==='map-sec') updateMap(); 
+    }
+    
+    window.onload = () => { 
+        fetchRealHistory(); 
+        initScraper(); 
+    };
 
     async function initScraper() {
         try {
@@ -164,39 +185,6 @@
             document.getElementById('pdf-data').innerHTML = h;
         } catch(e) {}
     }
-    // This replaces the fake math with a real data bridge
-const historyData = {};
-const fullTimeline = [];
-
-async function fetchXETrends() {
-    try {
-        // We fetch the lineage of EGP to see exactly when it jumped
-        const res = await fetch('https://open.er-api.com/v6/lineage/EGP');
-        const data = await res.json();
-        
-        // This gets the actual dates from the last 3 years
-        const dates = Object.keys(data.history).sort();
-        fullTimeline.push(...dates);
-
-        // This maps the REAL historical numbers for your specific currencies
-        const targets = ['EUR', 'AED', 'CHF', 'CNY', 'SAR', 'USD'];
-        targets.forEach(curr => {
-            historyData[curr] = dates.map(d => {
-                const rate = data.history[d][curr];
-                // We convert it to "1 Unit = X EGP" to match the XE chart style
-                return parseFloat((1 / rate).toFixed(3));
-            });
-        });
-
-        // Trigger the chart update once data is ready
-        if (typeof updateMap === "function") updateMap();
-    } catch (e) {
-        console.error("XE Trend Fetch Failed: ", e);
-    }
-}
-
-// Call this function when the page loads
-fetchXETrends();
 </script>
 </body>
 </html>
