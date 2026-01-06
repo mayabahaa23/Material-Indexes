@@ -131,7 +131,7 @@
 
     async function loadFX() {
         try {
-            const res = await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/egp.json');
+            const res = await fetch('https://raw.githubusercontent.com/m07733/cbe-rates-history/main/history.json');
             const d = await res.json();
             const egpBase = d.rates.EGP; 
             let h = '';
