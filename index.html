@@ -84,7 +84,7 @@
     const fullTimeline = [];
     const historyData = {};
 
-    // FIXED: Replacing fake math with real historical data fetch
+    // FIXED: Real historical data fetch that now triggers dropdown population
     async function fetchRealHistory() {
         try {
             const res = await fetch('https://open.er-api.com/v6/lineage/USD');
@@ -92,7 +92,12 @@
             const dates = Object.keys(data.history).sort();
             
             fullTimeline.length = 0;
-            dates.forEach(d => fullTimeline.push(d));
+            dates.forEach(d => {
+                // Convert date format for display (e.g. 2024-03-01 to Mar 2024)
+                const dateObj = new Date(d);
+                const label = dateObj.toLocaleString('default', { month: 'short', year: 'numeric' });
+                fullTimeline.push(label);
+            });
 
             Object.keys(cbeOfficial).forEach(curr => {
                 historyData[curr] = dates.map(d => {
@@ -102,26 +107,40 @@
                 });
             });
 
+            // CRITICAL FIX: Populate dropdowns AFTER data is loaded
             populateDropdowns();
+            updateMap(); 
         } catch(e) { console.error("History Load Error"); }
     }
 
     function populateDropdowns() {
         const s = document.getElementById('start'), e = document.getElementById('end'), c = document.getElementById('cur');
         s.innerHTML = ''; e.innerHTML = ''; c.innerHTML = '';
+        
         fullTimeline.forEach((m, i) => {
             s.innerHTML += `<option value="${i}">${m}</option>`;
             e.innerHTML += `<option value="${i}" ${i==fullTimeline.length-1?'selected':''}>${m}</option>`;
         });
-        Object.keys(historyData).forEach(curr => c.innerHTML += `<option value="${curr}">${curr}</option>`);
+        
+        Object.keys(historyData).forEach(curr => {
+            c.innerHTML += `<option value="${curr}">${curr}</option>`;
+        });
     }
 
     let myChart = null;
     function updateMap() {
-        const curr = document.getElementById('cur').value, s = parseInt(document.getElementById('start').value), e = parseInt(document.getElementById('end').value);
-        if(s >= e || !historyData[curr]) return;
-        const labels = fullTimeline.slice(s, e + 1), data = historyData[curr].slice(s, e + 1);
-        document.getElementById('varDisplay').innerText = `+${(((data[data.length-1]-data[0])/data[0])*100).toFixed(1)}%`;
+        const curr = document.getElementById('cur').value;
+        const s = parseInt(document.getElementById('start').value);
+        const e = parseInt(document.getElementById('end').value);
+        
+        if(!historyData[curr] || s >= e) return;
+
+        const labels = fullTimeline.slice(s, e + 1);
+        const data = historyData[curr].slice(s, e + 1);
+        
+        const varPct = (((data[data.length-1]-data[0])/data[0])*100).toFixed(1);
+        document.getElementById('varDisplay').innerText = `${varPct > 0 ? '+' : ''}${varPct}%`;
+
         const ctx = document.getElementById('chartCanvas').getContext('2d');
         if(myChart) myChart.destroy();
         myChart = new Chart(ctx, {
@@ -133,7 +152,10 @@
             },
             options: { 
                 plugins: { datalabels: { display: false }, legend: {display:false} },
-                scales: { y: { grace: '15%' } }
+                scales: { 
+                    x: { ticks: { maxTicksLimit: 8 } },
+                    y: { grace: '15%' } 
+                }
             }
         });
     }
@@ -145,7 +167,7 @@
             const egpBase = d.rates.EGP; 
             let h = '';
             Object.keys(cbeOfficial).forEach(curr => {
-                const finalRate = (egpBase / d.rates[curr]).toFixed(4);
+                const finalRate = (egpBase / (d.rates[curr] || 1)).toFixed(4);
                 h += `<tr><td><b>${curr}</b></td><td class="rate-cell">${finalRate}</td><td><span style="color:green">● Verified</span></td></tr>`;
             });
             document.getElementById('fx-body').innerHTML = h;
